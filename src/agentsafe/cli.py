@@ -268,7 +268,7 @@ def _print_plan(plan: RestorePlan) -> None:
     if manifest.skipped:
         typer.echo(
             f"{len(manifest.skipped)} path(s) were not captured by this snapshot "
-            "(ignored, excluded or too large) and will be left untouched."
+            "(excluded, too large, unreadable or unsupported) and will be left untouched."
         )
 
 

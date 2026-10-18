@@ -238,6 +238,31 @@ def test_keep_conflicts_reports_kept_files_honestly(cli: Run, project_dir: Path)
     assert cli("verify", sid).exit_code == 1  # as documented: kept files still differ
 
 
+def test_restore_reports_paths_the_snapshot_skipped_and_leaves_them(
+    cli: Run, project_dir: Path
+) -> None:
+    assert cli("init", "--max-file-size-mb", "1").exit_code == 0
+    (project_dir / "big.bin").write_bytes(b"\0" * (2 * 1024 * 1024))
+    (project_dir / "node_modules").mkdir()
+    (project_dir / "node_modules" / "dep.js").write_text("dep\n")
+    sid = _snapshot(cli)
+    (project_dir / "big.bin").write_bytes(b"shrunk by an agent\n")
+    (project_dir / "README.md").write_text("agent edit\n")
+
+    dry = cli("restore", sid, "--dry-run")
+    assert dry.exit_code == 0, dry.output
+    assert (
+        "2 path(s) were not captured by this snapshot "
+        "(excluded, too large, unreadable or unsupported) and will be left untouched."
+    ) in dry.output
+
+    restored = cli("restore", sid, "--overwrite-conflicts", "--yes")
+    assert restored.exit_code == 0, restored.output
+    assert (project_dir / "big.bin").read_bytes() == b"shrunk by an agent\n"
+    assert (project_dir / "node_modules" / "dep.js").read_text() == "dep\n"
+    assert (project_dir / "README.md").read_text() == "# Demo\n"
+
+
 def test_diff_exits_zero_even_when_files_differ(cli: Run, project_dir: Path) -> None:
     cli("init")
     sid = _snapshot(cli)

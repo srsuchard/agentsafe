@@ -6,49 +6,155 @@ Snapshot your project before an AI coding agent changes it, see exactly what cha
 safely put things back. AgentSafe works without Git commits and stores snapshots outside
 your project. It refuses any restore it cannot do safely.
 
-> **Status: alpha (0.1.0).** A Python CLI for macOS. No GUI, cloud service, accounts,
-> telemetry or AI integrations. It has only been run and tested on macOS with Python 3.14.
+> **Status: early alpha (0.1.0).** A Python CLI for macOS. No GUI, cloud service, accounts,
+> telemetry or AI integrations. Tested only on macOS, with Python 3.11, 3.12, 3.13 and
+> 3.14. Keep independent backups (such as Git commits) of anything you cannot afford to lose.
 
 ## Installation
 
-Requires Python 3.11 or newer. AgentSafe is not on PyPI yet, so install it from a checkout:
+You need Python 3.11 or newer and Git. First check which Python you have:
+
+```bash
+python3 --version
+```
+
+On macOS, `python3` is often Apple's Python 3.9, which is too old. Installing then fails
+with `requires a different Python: 3.9.6 not in '>=3.11'`. Install a newer Python (for
+example from [python.org](https://www.python.org/downloads/macos/) or with
+`brew install python@3.13`). Then use that interpreter, such as `python3.13`, wherever
+`python3` appears below.
+
+AgentSafe is not on PyPI yet, so install it from a checkout into a virtual environment:
 
 ```bash
 git clone https://github.com/srsuchard/agentsafe.git
 cd agentsafe
 python3 -m venv .venv
-.venv/bin/pip install .
-.venv/bin/agentsafe --version
+source .venv/bin/activate
+pip install .
+agentsafe --version
 ```
 
-If you use pipx, `pipx install .` from the checkout puts `agentsafe` on your PATH.
+The last line should print `agentsafe 0.1.0`. The `agentsafe` command works only while
+that virtual environment is active. In a new terminal, run
+`source /path/to/agentsafe/.venv/bin/activate` again. Or, if you use
+[pipx](https://pipx.pypa.io/), run `pipx install .` from the checkout instead. That puts
+`agentsafe` on your PATH permanently.
 
-### Development
+## Five-minute safe demo
+
+This demo runs entirely inside a new temporary directory. `AGENTSAFE_HOME` points the
+snapshot storage there too, so your real projects and `~/.agentsafe` are never touched.
+Run it in the terminal where `agentsafe --version` worked, and paste each block as it is.
+The blocks are safe to paste into bash or macOS's default zsh without changing any shell
+settings. Setup stops at the first failed step, and every later block first checks that
+setup finished, then moves into the demo project. A failed or skipped step therefore
+never writes into your current directory.
+
+Set up a throwaway Git project with a code file and a Git-ignored `.env`:
 
 ```bash
-python3 -m venv .venv
-.venv/bin/pip install -e '.[dev]'
-.venv/bin/python -m pytest              # test suite; uses temporary directories only
-.venv/bin/ruff check src tests          # lint
-.venv/bin/ruff format --check src tests # formatting
-.venv/bin/mypy                          # strict type checking
-AGENTSAFE="$PWD/.venv/bin/agentsafe" ./scripts/demo.sh   # end-to-end demo in a temp dir
+if DEMO="$(mktemp -d "${TMPDIR:-/tmp}/agentsafe-demo.XXXXXX")" &&
+  [ -d "$DEMO" ] &&
+  mkdir "$DEMO/project" &&
+  cd "$DEMO/project" &&
+  export AGENTSAFE_HOME="$DEMO/agentsafe-home" &&
+  git init -q &&
+  printf 'def add(a, b):\n    return a + b\n' > calc.py &&
+  printf 'API_KEY=example\n' > .env &&
+  printf '.env\n' > .gitignore &&
+  touch "$DEMO/.agentsafe-demo-ready"
+then
+  echo "Demo project ready: $DEMO/project"
+else
+  echo "Demo setup failed (see above). Nothing was written outside the demo directory."
+fi
 ```
+
+Take a snapshot, then play the AI agent. Break a file and create a new one:
+
+```bash
+if [ -f "$DEMO/.agentsafe-demo-ready" ] && cd "$DEMO/project"; then
+  agentsafe init &&
+  agentsafe snapshot -m "before agent run" &&
+  SNAP="$(agentsafe history | awk 'NR==2 {print $1}')" &&
+  printf 'def add(a, b):\n    return a - b\n' > calc.py &&
+  printf 'print("generated")\n' > generated.py
+else
+  echo "Run the setup block first."
+fi
+```
+
+See what changed and preview the restore. Neither command changes any file:
+
+```bash
+if [ -f "$DEMO/.agentsafe-demo-ready" ] && cd "$DEMO/project"; then
+  agentsafe diff "$SNAP" &&
+  agentsafe restore "$SNAP" --dry-run
+else
+  echo "Run the setup block first."
+fi
+```
+
+The preview marks both changes as `CONFLICT`, because the agent's versions are not saved
+in any snapshot. That is why a plain restore would be refused. Restore anyway; the agent's
+versions go into an automatic `pre-restore` backup snapshot first:
+
+```bash
+if [ -f "$DEMO/.agentsafe-demo-ready" ] && cd "$DEMO/project"; then
+  agentsafe restore "$SNAP" --overwrite-conflicts --yes &&
+  agentsafe verify "$SNAP" &&
+  cat calc.py &&
+  agentsafe history
+else
+  echo "Run the setup block first."
+fi
+```
+
+`verify` reports `MATCH`, `calc.py` is fixed, `generated.py` is gone, and `history` shows
+the backup. Now see what AgentSafe does **not** protect. `.env` is Git-ignored, so it was
+never captured. Deleting it is invisible to AgentSafe, and it cannot be brought back:
+
+```bash
+if [ -f "$DEMO/.agentsafe-demo-ready" ] && cd "$DEMO/project"; then
+  rm .env &&
+  agentsafe verify "$SNAP"
+else
+  echo "Run the setup block first."
+fi
+```
+
+Clean up. This removes the demo's temporary directory and nothing else. Any other path,
+including your project or home directory, is refused:
+
+```bash
+case "$DEMO" in
+  "${TMPDIR:-/tmp}"/agentsafe-demo.[[:alnum:]][[:alnum:]][[:alnum:]][[:alnum:]][[:alnum:]][[:alnum:]])
+    cd ~ && rm -rf "$DEMO" && echo "Removed $DEMO" ;;
+  *)
+    echo "Nothing removed: not a directory created by this demo." ;;
+esac
+unset AGENTSAFE_HOME DEMO SNAP
+```
+
+For a fully scripted version of the same story, run `./scripts/demo.sh` from the checkout.
 
 ## Usage
 
-```bash
-cd ~/code/my-project
-agentsafe init                              # register this directory (writes nothing into it)
-agentsafe snapshot -m "before agent run"    # capture the current files
-# ... let the agent work ...
-agentsafe history                           # list snapshots
-agentsafe diff 20261018-192124-a70dd1       # what changed since the snapshot (unified diff)
-agentsafe diff 20261018-1921 --name-only    # a unique ID prefix also works
-agentsafe verify 20261018-192124-a70dd1     # snapshot integrity + do the files match?
-agentsafe restore 20261018-192124-a70dd1 --dry-run   # preview only; changes nothing
-agentsafe restore 20261018-192124-a70dd1             # preview, conflict check, confirm
-```
+Run `agentsafe init` once in your project's root directory. It registers the directory
+and writes nothing into it. After that, every command works from anywhere inside the
+project. Snapshot IDs look like `20261018-192124-a70dd1`, and any unique prefix of an ID
+(`20261018-1921`) also works.
+
+| Command | What it does |
+|---|---|
+| `agentsafe init` | Register the current directory as a project. |
+| `agentsafe snapshot -m "before agent run"` | Capture the current files. |
+| `agentsafe history` | List snapshots, oldest first, including automatic `pre-restore` backups. |
+| `agentsafe diff ID` | Show what changed since the snapshot, as a unified diff. Add `--name-only` for paths only. |
+| `agentsafe verify ID` | Check the snapshot's integrity and whether the files still match it. |
+| `agentsafe restore ID --dry-run` | Preview a restore. Changes nothing. |
+| `agentsafe restore ID` | Preview, check conflicts, ask for confirmation, back up, restore, verify. |
 
 ### Restoring
 
@@ -84,8 +190,10 @@ When there are conflicts, a restore is refused until you choose explicitly:
 Then AgentSafe asks for confirmation (`--yes` skips the prompt). `--dry-run` always stops
 after the preview, even when combined with `--yes` or a conflict option.
 
-Every restore that changes anything first creates a `pre-restore` backup snapshot. If a
-restore stops part-way, the error names that backup and the command to return to it.
+Every restore that changes anything first creates a `pre-restore` backup snapshot and
+prints its ID (`Backup of the previous state: snapshot ...`). To undo a restore, restore
+that backup: `agentsafe restore BACKUP-ID`. If a restore stops part-way, the error names
+that backup and the command to return to it.
 
 ### Exit codes
 
@@ -142,8 +250,9 @@ snapshot (after backing them up), so out-of-scope files are never deleted.
 | FIFOs, sockets, devices, unreadable files | Skipped and listed. |
 | Empty directories | Not tracked (like Git). |
 
-`snapshot` lists the paths it did not capture and why (the first 15, then a count). The
-full list is recorded in the snapshot manifest.
+`snapshot` lists the paths it skipped and why (the first 15, then a count). The full list
+is recorded in the snapshot manifest. Git-ignored files are **not** in that list; they are
+left out silently. To see which files Git ignores, run `git status --ignored`.
 
 ## Known limitations
 
@@ -160,11 +269,33 @@ full list is recorded in the snapshot manifest.
   `diff`/`verify`. Hard links come back as separate files.
 * **Project identity is its path.** Moving the directory disconnects it from its snapshots.
 * **Storage only grows.** There is no pruning yet.
-* **Python 3.11–3.13 have not been runtime-tested.** Python 3.11+ is declared, and mypy
-  type-checks the code against 3.11. The test suite has only been run on Python 3.14.
+* **Python versions.** The test suite has been run on macOS with Python 3.11, 3.12, 3.13
+  and 3.14. There is no CI yet, so other versions are untested.
 * **Platform.** Developed and tested only on macOS. Windows is unsupported.
 
 The design and full limitations list are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Development
+
+Set up a virtual environment as in [Installation](#installation), then install AgentSafe
+in editable mode with the development tools:
+
+```bash
+pip install -e '.[dev]'
+```
+
+Checks to run before sending a change:
+
+```bash
+python -m pytest
+ruff check src tests
+ruff format --check src tests
+mypy
+```
+
+The tests use temporary directories only and never touch `~/.agentsafe` or your projects.
+`./scripts/demo.sh` runs an end-to-end demo in a temporary directory. It uses the
+`agentsafe` on your PATH, or the command named by `AGENTSAFE`.
 
 ## License
 
