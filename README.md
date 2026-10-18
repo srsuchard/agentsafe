@@ -270,7 +270,7 @@ left out silently. To see which files Git ignores, run `git status --ignored`.
 * **Project identity is its path.** Moving the directory disconnects it from its snapshots.
 * **Storage only grows.** There is no pruning yet.
 * **Python versions.** The test suite has been run on macOS with Python 3.11, 3.12, 3.13
-  and 3.14. There is no CI yet, so other versions are untested.
+  and 3.14, and CI runs it on macOS with the same versions. Other versions are untested.
 * **Platform.** Developed and tested only on macOS. Windows is unsupported.
 
 The design and full limitations list are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -292,6 +292,12 @@ ruff check src tests
 ruff format --check src tests
 mypy
 ```
+
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs these checks
+on macOS with Python 3.11, 3.12, 3.13 and 3.14 for every push and every pull request to
+`main`. It fails instead of skipping the README demo tests if `git`, `bash`, `zsh` or the
+installed `agentsafe` command is missing. It also builds the sdist and wheel, checks them
+with `twine check --strict`, and smoke-tests the installed wheel.
 
 The tests use temporary directories only and never touch `~/.agentsafe` or your projects.
 `./scripts/demo.sh` runs an end-to-end demo in a temporary directory. It uses the

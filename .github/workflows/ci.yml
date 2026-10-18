@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Superseded runs are cancelled, except on main, where every commit keeps its result.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONUNBUFFERED: "1"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    # AgentSafe supports and is tested only on macOS. The README demo tests also need
+    # zsh, which macOS ships and Ubuntu runners do not.
+    runs-on: macos-26
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # The documented development install: a virtual environment, then an editable
+      # install with the dev extras. Later steps use the venv's tools via PATH.
+      - name: Install AgentSafe and development dependencies
+        run: |
+          python -m venv .venv
+          echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          .venv/bin/python -m pip install -e '.[dev]'
+
+      # tests/test_readme_demo.py skips (rather than fails) when git, bash, zsh or the
+      # installed agentsafe entry point is missing. Fail loudly here instead.
+      - name: Check README demo test prerequisites
+        run: |
+          python --version
+          scripts_dir="$(python -c 'import sysconfig; print(sysconfig.get_path("scripts"))')"
+          test -x "$scripts_dir/agentsafe" || { echo "::error::agentsafe is not installed in $scripts_dir"; exit 1; }
+          for tool in git bash zsh; do
+            command -v "$tool" || { echo "::error::$tool is not installed"; exit 1; }
+          done
+          agentsafe --version
+
+      - name: Ruff lint
+        run: ruff check src tests
+
+      - name: Ruff format check
+        run: ruff format --check src tests
+
+      - name: Mypy (strict, configured in pyproject.toml)
+        run: mypy
+
+      - name: Pytest
+        run: pytest -q
+
+  package:
+    name: Build and check distributions
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The oldest supported Python, so the smoke install also checks requires-python.
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      # build runs the project's Hatchling backend in an isolated environment. twine 6.1+
+      # understands the Metadata 2.4 (PEP 639 license) fields that Hatchling 1.27+ writes.
+      - name: Install build tools
+        run: |
+          python -m venv "$RUNNER_TEMP/build-venv"
+          "$RUNNER_TEMP/build-venv/bin/python" -m pip install 'build>=1.2' 'twine>=6.1'
+
+      # Builds the sdist, then the wheel from that sdist, which proves the sdist is complete.
+      - name: Build sdist and wheel
+        run: |
+          "$RUNNER_TEMP/build-venv/bin/python" -m build
+          ls -l dist
+
+      - name: Check distribution metadata
+        run: '"$RUNNER_TEMP/build-venv/bin/twine" check --strict dist/*'
+
+      - name: Install wheel into a clean environment and smoke-test it
+        run: |
+          version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          python -m venv "$RUNNER_TEMP/wheel-venv"
+          "$RUNNER_TEMP/wheel-venv/bin/python" -m pip install "dist/agentsafe-$version-py3-none-any.whl"
+          test -f "dist/agentsafe-$version.tar.gz"
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/wheel-venv/bin/python" -c 'import importlib.resources as r; assert r.files("agentsafe").joinpath("py.typed").is_file()'
+          output="$("$RUNNER_TEMP/wheel-venv/bin/agentsafe" --version)"
+          echo "$output"
+          test "$output" = "agentsafe $version"
