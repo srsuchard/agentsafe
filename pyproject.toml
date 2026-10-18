@@ -1,0 +1,70 @@
+[build-system]
+# 1.27+ is needed for the SPDX `license` expression and `license-files` (PEP 639).
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentsafe"
+version = "0.1.0"
+description = "Local-first snapshots and safe recovery for AI-assisted coding."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Samuel Suchard", email = "samuel.suchard@gmail.com" }]
+keywords = ["snapshot", "backup", "restore", "ai-agents", "cli", "safety"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development",
+    "Topic :: System :: Archiving :: Backup",
+    "Typing :: Typed",
+]
+dependencies = [
+    # typer 0.12.0 accepts current Click releases it cannot drive (every command then
+    # silently exits 0). 0.15.4 is the oldest version verified with the test suite.
+    "typer>=0.15.4",
+]
+
+[project.urls]
+Homepage = "https://github.com/srsuchard/agentsafe"
+Repository = "https://github.com/srsuchard/agentsafe"
+Issues = "https://github.com/srsuchard/agentsafe/issues"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+agentsafe = "agentsafe.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agentsafe"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src"]
