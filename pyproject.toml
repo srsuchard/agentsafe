@@ -52,6 +52,11 @@ agentsafe = "agentsafe.cli:app"
 [tool.hatch.build.targets.wheel]
 packages = ["src/agentsafe"]
 
+[tool.hatch.build.targets.sdist]
+# Without an explicit list, every file Git does not ignore is shipped, including a
+# differently named virtual environment or other stray local files.
+include = ["/src", "/tests", "/docs", "/scripts", "/README.md", "/LICENSE", "/.gitignore"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"

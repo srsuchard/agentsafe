@@ -150,8 +150,8 @@ not blocked. The re-checks in steps 3 and 4 detect most of their changes.
 * **Scale.** Each restore loads every manifest to build the conflict index and re-hashes
   the project. Each snapshot also re-reads already-stored objects to verify them before
   reuse. This is fine for typical repositories but slow for very large ones.
-* **Python 3.11–3.13 have not been runtime-tested.** mypy checks against 3.11; the test
-  suite has only been run on Python 3.14.
+* **Python versions.** mypy checks against 3.11. The test suite has been run on macOS with
+  Python 3.11, 3.12, 3.13 and 3.14, but there is no CI yet.
 * **macOS focus.** Uses `fcntl.flock` and `dir_fd` APIs that also work on Linux, but only
   macOS is tested. Windows is unsupported.
 

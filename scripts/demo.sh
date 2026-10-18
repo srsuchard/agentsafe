@@ -11,7 +11,7 @@ export AGENTSAFE_HOME="$DEMO_DIR/agentsafe-home"
 PROJECT="$DEMO_DIR/project"
 
 step() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
-run() { printf '\033[2m$ %s\033[0m\n' "$*"; "$@"; }
+run() { printf '\033[2m$'; printf ' %q' "$@"; printf '\033[0m\n'; "$@"; }
 
 step "Create a small Git project with committed, uncommitted and untracked files"
 mkdir -p "$PROJECT/src"
